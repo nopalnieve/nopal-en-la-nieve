@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nopal en la nieve</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&display=swap">
 <style>
   :root { --mapw: min(1000px, 94vw, calc(56vh * 220 / 170)); }
   * { box-sizing: border-box; margin: 0; }
@@ -13,6 +15,26 @@
   main { padding: clamp(6px, 1.5vh, 16px) 0 24px; text-align: center; }
   #stage { display: inline-block; transition: opacity .2s linear; line-height: 0; }
   #stage.out { opacity: 0; }
+  #stage { position: relative; }
+
+  /* password box that opens when the coyote steps on the spiral */
+  #pw { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; line-height: normal; }
+  #pw[hidden] { display: none; }
+  .pw-box { background: #fff; border: 4px solid #000; box-shadow: 8px 8px 0 #000;
+            padding: 18px 20px 20px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  #pw-label { width: min(246px, 60vw); height: auto; }
+  .pw-row { display: flex; }
+  #pw-input { font: 20px/1 'Silkscreen', ui-monospace, Menlo, Consolas, monospace; letter-spacing: .12em;
+              width: min(10.5em, 52vw); padding: 10px 12px; border: 3px solid #000; border-right: 0; border-radius: 0;
+              background: #fff; color: #000; outline: none; -webkit-appearance: none; appearance: none; }
+  #pw button { font: 22px/1 ui-monospace, Menlo, Consolas, monospace; font-weight: 700; border: 3px solid #000;
+                   border-radius: 0; cursor: pointer; padding: 0; width: 46px; }
+  #pw-go { background: #000; color: #fff; font-size: 28px; }
+  #pw-close { position: absolute; top: -4px; right: -4px; transform: translate(50%, -50%); width: 34px; height: 34px;
+              background: #fff; color: #000; font-size: 22px; }
+  .pw-inner { position: relative; }
+  .pw-box.no { animation: no .32s steps(2) 1; }
+  @keyframes no { 0%, 50% { transform: translateX(-8px); } 25%, 75% { transform: translateX(8px); } 100% { transform: none; } }
   #world, #strip {
     width: var(--mapw); height: auto;
     background: #fff; outline: none;
@@ -33,7 +55,21 @@
 <div id="strip-wrap" aria-hidden="true"><canvas id="strip"></canvas></div>
 <main>
   <div id="stage"><canvas id="world" tabindex="0" autofocus
-       aria-label="Mapa: camina con el coyote hacia Fuente, Viveros, Mercado o la Facultad de Música y entra por la puerta"></canvas></div>
+       aria-label="Mapa: camina con el coyote hacia Fuente, Viveros, Mercado o la Facultad de Música y entra por la puerta"></canvas>
+    <div id="pw" hidden role="dialog" aria-modal="true" aria-label="Contraseña">
+      <div class="pw-inner">
+        <form class="pw-box" id="pw-form" autocomplete="off">
+          <canvas id="pw-label" role="img" aria-label="Contraseña"></canvas>
+          <div class="pw-row">
+            <input id="pw-input" type="password" autocomplete="off" autocapitalize="off" autocorrect="off"
+                   spellcheck="false" enterkeyhint="go" aria-label="Contraseña">
+            <button id="pw-go" type="submit" aria-label="Entrar">&rarr;</button>
+          </div>
+        </form>
+        <button id="pw-close" type="button" aria-label="Cerrar">&times;</button>
+      </div>
+    </div>
+  </div>
   <div id="keys-wrap"><canvas id="keys" role="img"
        aria-label="Usa las cuatro flechas del teclado para mover al coyote"></canvas></div>
 </main>
@@ -231,6 +267,9 @@ const NOTES = [parse(`
 ###..
 ###..
 .#...`)];
+const TILDE = parse(`
+..##..#
+.#..##.`);
 const ACCENT = parse(`
 ...##.
 ..##..`);
@@ -249,8 +288,9 @@ function spiralCells(step) {
   }
   spiralCache.set(step, cells); return cells;
 }
-function spiral(cx, cy, t) {
-  const step = STILL ? 0 : Math.floor(t / 6 * SPIRAL_STEPS) % SPIRAL_STEPS;   // one full turn every 6 s
+let spiralT = 0;                                       // advanced by the main loop; faster while celebrating
+function spiral(cx, cy) {
+  const step = STILL ? 0 : Math.floor(spiralT / 6 * SPIRAL_STEPS) % SPIRAL_STEPS;   // one full turn every 6 s
   for (const [x, y] of spiralCells(step)) rect(cx + x, cy + y, 1, 1);
 }
 const SPARK = parse(`
@@ -399,7 +439,8 @@ V: `
 ...#...`,
 }).forEach(([k, v]) => FONT[k] = parse(v));
 
-const glyph = ch => FONT[ch === 'Ú' ? 'U' : ch];      // Ú is a U with an accent on top
+const MARKS = { 'Ú': ['U', () => ACCENT], 'Ñ': ['N', () => TILDE] };   // letter + mark drawn on top
+const glyph = ch => FONT[MARKS[ch] ? MARKS[ch][0] : ch];
 function textW(s, k = 1, gap = 2) {
   let w = 0; for (const ch of s) w += ((glyph(ch) ? glyph(ch).w : 3) + gap) * k; return w - gap * k;
 }
@@ -408,7 +449,7 @@ function text(s, cx, y, k = 1, gap = 2) {           // centred on cx
   for (const ch of s) {
     const g = glyph(ch);
     if (g) put(g, x, y, k);
-    if (ch === 'Ú') put(ACCENT, x, y - 3 * k, k);
+    if (MARKS[ch]) put(MARKS[ch][1](), x, y - 3 * k, k);
     x += ((g ? g.w : 3) + gap) * k;
   }
 }
@@ -474,7 +515,10 @@ const SCENES = {
     draw(t) {
       frame(true); text('FACULTAD DE', W / 2, 8, 2); text('MÚSICA', W / 2, 34, 2);
       put(PIANO, 80, 62, 2);
-      spiral(27, 141, t);                            // floor drawing in the bottom-left corner; she can walk over it
+      spiral(SPIRAL.x, SPIRAL.y);                    // floor drawing in the bottom-left corner; stepping on it asks for the password
+      if (t < spinUntil) [[-24, -8], [20, -14], [-12, 18], [24, 12]].forEach(([dx, dy], i) => {     // sparkles after the right password
+        if (Math.floor(t / 0.15 + i) % 2) put(SPARK, SPIRAL.x + dx - 2, SPIRAL.y + dy - 2);
+      });
       put(STAND, 34, 96, 2); put(STAND, 170, 96, 2);
       [[54, 0, 0], [154, 1.4, 1], [66, 2.3, 1], [146, 0.8, 0]].forEach(([x, ph, n]) => {     // notes drift up from the piano
         const u = ((t + ph) % 3.2) / 3.2;
@@ -498,7 +542,10 @@ let scene = 'world', busy = false, target = null;
 const keys = {}, touch = {};                      // keyboard arrows, and the on-screen pad on touch screens
 const on = k => keys[k] || touch[k];
 const KEYMAP = { ArrowLeft: 'l', ArrowRight: 'r', ArrowUp: 'u', ArrowDown: 'd' };   // arrows only
-addEventListener('keydown', e => { const k = KEYMAP[e.key]; if (k) { keys[k] = true; target = null; e.preventDefault(); } });
+addEventListener('keydown', e => {
+  if (pwOpen) { if (e.key === 'Escape') closePw(); return; }          // typing the password: arrows stay in the box
+  const k = KEYMAP[e.key]; if (k) { keys[k] = true; target = null; e.preventDefault(); }
+});
 addEventListener('keyup', e => { const k = KEYMAP[e.key]; if (k) keys[k] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; target = null; });
 
@@ -522,6 +569,51 @@ function go(to, cx, y, dir) {
   setTimeout(() => { scene = to; p.dir = dir; p.w = NW; p.x = cx - NW / 2; p.y = y;
                      stage.classList.remove('out'); busy = false; }, 220);
 }
+
+/* ---------- the spiral asks for a password ---------- */
+const SPIRAL = { x: 27, y: 141 };
+const PW_HASH = 8711678991727376;                     // hash of the password, so it isn't written here in plain text
+function cyrb53(str, seed = 7) {
+  let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0, ch; i < str.length; i++) { ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507); h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507); h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
+const pw = document.getElementById('pw'), pwForm = document.getElementById('pw-form'),
+      pwInput = document.getElementById('pw-input'), pwLabel = document.getElementById('pw-label');
+let pwOpen = false, pwArmed = true, unlocked = false, spinUntil = 0;
+
+const LW = 82, LH = 12;                               // "CONTRASEÑA" in the title lettering
+pwLabel.width = LW * C; pwLabel.height = LH * C;
+function drawPwLabel() {
+  ctx = pwLabel.getContext('2d'); rect(0, 0, LW, LH, '#fff'); text('CONTRASEÑA', LW / 2, 3); ctx = wctx;
+  pwLabel.style.filter = `blur(${(pwLabel.clientWidth / LW * 0.3).toFixed(2)}px) contrast(30)`;
+}
+function openPw() {
+  pwOpen = true; pwArmed = false;
+  for (const k in keys) keys[k] = false;
+  fingers.clear(); syncTouch();
+  pw.hidden = false; pwInput.value = ''; drawPwLabel();
+  setTimeout(() => pwInput.focus({ preventScroll: true }), 30);
+}
+function closePw() {
+  pw.hidden = true; pwOpen = false;
+  pwInput.blur(); grab();
+}
+function unlock() {                                   // what the right password does
+  unlocked = true;
+  spinUntil = performance.now() / 1000 + 2.4;
+}
+pwForm.addEventListener('submit', e => {
+  e.preventDefault();
+  if (cyrb53(pwInput.value.trim().toLowerCase()) === PW_HASH) { closePw(); unlock(); return; }
+  pwInput.value = '';
+  pwForm.classList.remove('no'); void pwForm.offsetWidth; pwForm.classList.add('no');   // shake: wrong password
+  pwInput.focus({ preventScroll: true });
+});
+document.getElementById('pw-close').addEventListener('click', closePw);
+pw.addEventListener('pointerdown', e => { if (e.target === pw) closePw(); });           // tap outside the box to close
 
 function step(dt) {
   let dx = (on('r') ? 1 : 0) - (on('l') ? 1 : 0), dy = (on('d') ? 1 : 0) - (on('u') ? 1 : 0);
@@ -548,6 +640,11 @@ function step(dt) {
       const b = PLACES.find(q => q.id === scene);
       return go('world', b.x + DX + DW / 2, b.y + BH + 3, 'down');
     }
+  }
+  if (scene === 'musica' && !unlocked) {               // step onto the spiral's centre to be asked; step off to re-arm
+    const d = Math.hypot(p.x + p.w / 2 - SPIRAL.x, p.y + CH / 2 - SPIRAL.y);
+    if (d < 7 && pwArmed && moving) return openPw();
+    if (d > 20) pwArmed = true;
   }
   if (target && !held && ((hitX && hitY) || (hitX && Math.abs(dy) < 0.05) || (hitY && Math.abs(dx) < 0.05))) target = null;
 }
@@ -758,7 +855,7 @@ const start = location.hash.slice(1);                          // e.g. #mercado 
 if (SCENES[start] && start !== 'world') { scene = start; p.dir = 'up'; p.w = NW; p.x = W / 2 - NW / 2; p.y = H - 6 - CH - 6; }
 
 /* take keyboard focus straight away, so the arrows work without clicking the map first */
-function grab() { if (!document.hasFocus() || document.activeElement !== cv) { try { window.focus(); cv.focus({ preventScroll: true }); } catch (_) {} } }
+function grab() { if (pwOpen) return; if (!document.hasFocus() || document.activeElement !== cv) { try { window.focus(); cv.focus({ preventScroll: true }); } catch (_) {} } }
 grab();
 ['load', 'pageshow', 'focus'].forEach(ev => addEventListener(ev, grab));
 document.addEventListener('visibilitychange', grab);
@@ -768,7 +865,8 @@ document.addEventListener('pointerdown', grab);
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (!busy) step(dt);
+  if (!busy && !pwOpen) step(dt);
+  spiralT += dt * (now / 1000 < spinUntil ? 12 : 1);
   draw(now / 1000);
   drawFlies(now / 1000, dt);
   drawStrip(now / 1000);
