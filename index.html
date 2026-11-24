@@ -601,13 +601,25 @@ function closePw() {
   pw.hidden = true; pwOpen = false;
   pwInput.blur(); grab();
 }
-function unlock() {                                   // what the right password does
+/* where the spiral leads: stored scrambled with the password, so the code doesn't give it away */
+const SECRET = 'GwokSXjI9p7qGDlHapml1vEHIUR6kL3I9Vd6Fj2NqN376xJ3Qn3WtNjmESNCdoKwxvwSKBQ=';
+function reveal(key) {
+  const b = atob(SECRET);
+  let out = '';
+  for (let i = 0; i < b.length; i++) out += String.fromCharCode(b.charCodeAt(i) ^ key.charCodeAt(i % key.length) ^ (i * 31 & 255));
+  return out;
+}
+function unlock(key) {                                // what the right password does: spin, sparkle, then go through
   unlocked = true;
-  spinUntil = performance.now() / 1000 + 2.4;
+  spinUntil = performance.now() / 1000 + 1.6;
+  const dest = reveal(key);
+  if (dest.startsWith('https://')) setTimeout(() => { busy = true; stage.classList.add('out'); }, 1200);
+  if (dest.startsWith('https://')) setTimeout(() => location.assign(dest), 1500);
 }
 pwForm.addEventListener('submit', e => {
   e.preventDefault();
-  if (cyrb53(pwInput.value.trim().toLowerCase()) === PW_HASH) { closePw(); unlock(); return; }
+  const guess = pwInput.value.trim().toLowerCase();
+  if (cyrb53(guess) === PW_HASH) { closePw(); unlock(guess); return; }
   pwInput.value = '';
   pwForm.classList.remove('no'); void pwForm.offsetWidth; pwForm.classList.add('no');   // shake: wrong password
   pwInput.focus({ preventScroll: true });
