@@ -33,7 +33,7 @@
 <div id="strip-wrap" aria-hidden="true"><canvas id="strip"></canvas></div>
 <main>
   <div id="stage"><canvas id="world" tabindex="0" autofocus
-       aria-label="Mapa: camina con el coyote hacia Fuente, Viveros o Mercado y entra por la puerta"></canvas></div>
+       aria-label="Mapa: camina con el coyote hacia Fuente, Viveros, Mercado o la Facultad de Música y entra por la puerta"></canvas></div>
   <div id="keys-wrap"><canvas id="keys" role="img"
        aria-label="Usa las cuatro flechas del teclado para mover al coyote"></canvas></div>
 </main>
@@ -184,6 +184,75 @@ const STALL = parse(`
 .#......................#.
 .#......................#.
 .#......................#.`);
+const PIANO = parse(`
+##############################
+#............................#
+#............................#
+#............................#
+#............................#
+##############################
+#..###.###..#..###.###.###..##
+#..###.###..#..###.###.###..##
+#..###.###..#..###.###.###..##
+#...#...#...#...#...#...#...##
+#...#...#...#...#...#...#...##
+##############################
+.##........................##.
+.##........................##.
+.##........................##.`);
+const STAND = parse(`
+########
+#......#
+#.####.#
+#......#
+#.####.#
+########
+...##...
+...##...
+...##...
+...##...
+..####..
+.##..##.
+##....##`);
+const NOTES = [parse(`
+...#######
+...#######
+...#.....#
+...#.....#
+...#.....#
+.###...###
+####..####
+.##....##.`), parse(`
+..#..
+..##.
+..#.#
+..#..
+..#..
+###..
+###..
+.#...`)];
+const ACCENT = parse(`
+...##.
+..##..`);
+/* a pixel spiral on the floor of the music room, turning slowly; cached per rotation step */
+const SPIRAL_STEPS = 24, spiralCache = new Map();
+function spiralCells(step) {
+  if (spiralCache.has(step)) return spiralCache.get(step);
+  const R = 16, TURNS = 3, rot = step / SPIRAL_STEPS * Math.PI * 2, seen = new Set(), cells = [];
+  for (let a = 0; a < TURNS * Math.PI * 2; a += 0.02) {
+    const r = R * a / (TURNS * Math.PI * 2);
+    const x = Math.round(r * Math.cos(a + rot)), y = Math.round(r * Math.sin(a + rot));
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {          // 2-cell-thick line
+      const key = (x + dx) + ',' + (y + dy);
+      if (!seen.has(key)) { seen.add(key); cells.push([x + dx, y + dy]); }
+    }
+  }
+  spiralCache.set(step, cells); return cells;
+}
+function spiral(cx, cy, t) {
+  const step = STILL ? 0 : Math.floor(t / 6 * SPIRAL_STEPS) % SPIRAL_STEPS;   // one full turn every 6 s
+  for (const [x, y] of spiralCells(step)) rect(cx + x, cy + y, 1, 1);
+}
 const SPARK = parse(`
 ..#..
 .#.#.
@@ -247,6 +316,15 @@ I: `
 ##
 ##
 ##`,
+L: `
+##....
+##....
+##....
+##....
+##....
+##....
+######
+######`,
 M: `
 ##....##
 ###..###
@@ -321,20 +399,27 @@ V: `
 ...#...`,
 }).forEach(([k, v]) => FONT[k] = parse(v));
 
+const glyph = ch => FONT[ch === 'Ú' ? 'U' : ch];      // Ú is a U with an accent on top
 function textW(s, k = 1, gap = 2) {
-  let w = 0; for (const ch of s) w += ((FONT[ch] ? FONT[ch].w : 3) + gap) * k; return w - gap * k;
+  let w = 0; for (const ch of s) w += ((glyph(ch) ? glyph(ch).w : 3) + gap) * k; return w - gap * k;
 }
 function text(s, cx, y, k = 1, gap = 2) {           // centred on cx
   let x = Math.round(cx - textW(s, k, gap) / 2);
-  for (const ch of s) { const g = FONT[ch]; if (g) put(g, x, y, k); x += ((g ? g.w : 3) + gap) * k; }
+  for (const ch of s) {
+    const g = glyph(ch);
+    if (g) put(g, x, y, k);
+    if (ch === 'Ú') put(ACCENT, x, y - 3 * k, k);
+    x += ((g ? g.w : 3) + gap) * k;
+  }
 }
 
 /* ---------- world layout (from the sketch) ---------- */
 const BW = 62, BH = 42, DX = 16, DW = 30;          // building box + door gap in its bottom wall
 const PLACES = [
-  { id: 'fuente',  name: 'FUENTE',  x: 28,  y: 24 },
-  { id: 'viveros', name: 'VIVEROS', x: 130, y: 24 },
-  { id: 'mercado', name: 'MERCADO', x: 79,  y: 100 },
+  { id: 'fuente',  name: ['FUENTE'],                x: 28,  y: 18 },
+  { id: 'viveros', name: ['VIVEROS'],               x: 130, y: 18 },
+  { id: 'mercado', name: ['MERCADO'],               x: 28,  y: 90 },
+  { id: 'musica',  name: ['FACULTAD DE', 'MÚSICA'], x: 130, y: 90 },
 ];
 const EXIT = { x: W / 2 - 15, w: 30 };             // door gap in an interior's bottom wall
 
@@ -354,11 +439,13 @@ const SCENES = {
     solids: PLACES.map(b => ({ x: b.x, y: b.y, w: BW, h: BH })),
     draw(t) {
       frame(false);
-      PLACES.forEach(b => { box(b); text(b.name, b.x + BW / 2, b.y + BH + 4); });
-      const [f, v, m] = PLACES, k = Math.floor(t / 0.35) % 2;
+      PLACES.forEach(b => { box(b); b.name.forEach((ln, i) => text(ln, b.x + BW / 2, b.y + BH + 4 + i * 12)); });
+      const [f, v, m, mu] = PLACES, k = Math.floor(t / 0.35) % 2;
       put(TREE, f.x + 8, f.y + 6); put(FOUNT[k], f.x + 30, f.y + 18);
       put(PINE, v.x + 9, v.y + 6); put(PINE, v.x + 36, v.y + 21);
       put(STALL, m.x + 18, m.y + 13);
+      put(PIANO, mu.x + 6, mu.y + 16);
+      put(NOTES[0], mu.x + 44, mu.y + 5 + Math.round(Math.sin(t * 2.4) * 1.5));
     },
   },
   fuente: {
@@ -379,6 +466,20 @@ const SCENES = {
       frame(true); text('VIVEROS', W / 2, 10, 2);
       [12, 54, 96, 138, 180].forEach(x => put(PINE, x, 40, 2));
       put(PINE, 20, 88, 2); put(PINE, 172, 88, 2);
+    },
+  },
+  musica: {
+    top: 54,
+    solids: [{ x: 80, y: 62, w: 60, h: 30 }, { x: 34, y: 96, w: 16, h: 26 }, { x: 170, y: 96, w: 16, h: 26 }],
+    draw(t) {
+      frame(true); text('FACULTAD DE', W / 2, 8, 2); text('MÚSICA', W / 2, 34, 2);
+      put(PIANO, 80, 62, 2);
+      spiral(27, 141, t);                            // floor drawing in the bottom-left corner; she can walk over it
+      put(STAND, 34, 96, 2); put(STAND, 170, 96, 2);
+      [[54, 0, 0], [154, 1.4, 1], [66, 2.3, 1], [146, 0.8, 0]].forEach(([x, ph, n]) => {     // notes drift up from the piano
+        const u = ((t + ph) % 3.2) / 3.2;
+        put(NOTES[n], Math.round(x + Math.sin((t + ph) * 2) * 3), Math.round(88 - u * 30));
+      });
     },
   },
   mercado: {
